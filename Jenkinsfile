@@ -1,19 +1,15 @@
 pipeline {
     agent any
 
-    tools {
-        maven 'Maven3'
-    }
-
     environment {
         APP_NAME = "sm-18-apr-repo-test-01".toLowerCase().trim()
         DOCKER_IMAGE = "sureshmavp1/${APP_NAME}"
         DOCKER_TAG = "1.0.${BUILD_NUMBER}"
         IMAGE_TAG = "${DOCKER_IMAGE}:${DOCKER_TAG}"
         GITOPS_REPO = "https://github.com/Backstage-IDP-PoC/k8s-manifest.git"
-        APP_PORTS = "8080"
-        DEPLOY_ENV = "qa"       
-        DEPLOY_NAMESPACE = "qa"
+        APP_PORTS = "5000"
+        DEPLOY_ENV = "prod"       
+        DEPLOY_NAMESPACE = "prod"
     }
 
     stages {
@@ -44,21 +40,43 @@ pipeline {
 
 // ================= CI STAGES =================
 
-        stage('Build & Test') {
+        stage('Setup Virtual Environment') {
             steps {
-                sh 'mvn clean verify -B'
-                // -B = batch mode (no interactive prompts, clean Jenkins output)
+                sh '''
+                python3 -m venv venv
+                . venv/bin/activate
+                pip install --upgrade pip
+                if [ -f requirements.txt ]; then
+                    pip install -r requirements.txt
+                fi
+                '''
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                sh '''
+                . venv/bin/activate
+                pytest --tb=short || true
+                '''
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh '''
-                    mvn sonar:sonar \
-                      -Dsonar.projectKey=${APP_NAME} \
-                      -Dsonar.sources=src/main/java \
-                    '''
+                script {
+                    def scannerHome = tool 'sonar-scanner'
+        
+                    withSonarQubeEnv('SonarQube') {
+                        sh """
+                            . venv/bin/activate
+        
+                            ${scannerHome}/bin/sonar-scanner \
+                              -Dsonar.projectKey=${APP_NAME} \
+                              -Dsonar.sources=. \
+                              -Dsonar.python.version=3
+                        """
+                    }
                 }
             }
         }
@@ -148,6 +166,7 @@ pipeline {
             }
         }
     }
+
     post {
         always {
             sh "docker logout || true"

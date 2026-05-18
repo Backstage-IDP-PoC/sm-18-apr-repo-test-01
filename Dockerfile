@@ -1,12 +1,22 @@
-FROM maven:3.9.6-eclipse-temurin-17 AS builder
-WORKDIR /usr/src/app
-COPY pom.xml .
-RUN mvn dependency:go-offline -B
-COPY src ./src
-RUN mvn clean package -DskipTests -B
+# ─── Stage 1: Build/Dependencies ──────────────────
+FROM python:3.11-slim AS builder
 
-FROM tomcat:9.0-jdk17-temurin
-RUN rm -rf /usr/local/tomcat/webapps/*
-COPY --from=builder /usr/src/app/target/*.war /usr/local/tomcat/webapps/ROOT.war
-EXPOSE 8080
-CMD ["catalina.sh", "run"]
+WORKDIR /usr/src/app
+
+# Install dependencies in isolated layer
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ─── Stage 2: Runtime ─────────────────────────────
+FROM python:3.11-slim
+
+WORKDIR /usr/src/app
+
+# Copy only installed packages from builder
+COPY --from=builder /install /usr/local
+
+COPY . .
+
+EXPOSE 5000
+
+CMD ["python", "app.py"]
